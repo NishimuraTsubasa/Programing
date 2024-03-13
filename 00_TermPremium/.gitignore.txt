@@ -1,0 +1,10 @@
+# 履歴を残さないフォルダ
+/old
+/result
+/config/__pycache__
+/data
+/data_processor/figure
+/data_processor/__pycache__
+/dlfactor/func_ACMmodel
+/dlfactor/func_KWmodel
+/dlfactor/__pycache__
