@@ -4,14 +4,13 @@ import numpy as np
 import datetime as dt
 from numpy import newaxis
 import os
-import matplotlib. pyplot as plt
-import matplotlib. dates as mdates
-from matplotlib. backends. backend_pdf import PdfPages
+
 # 作成した関数を読み込み
 from dlfactor.func_NSSmodel import main_calc_yield_curve # イールドカーブを生成する関数
 from data_processor.data_processor import *
 from dlfactor.func_ACMmodel import AMC_model_main
 from dlfactor.func_KWmodel import *
+from dlfactor.another_approch_KWmodel import main_KW_model
 
 def main_run(hyper_param_dict, folder_path, country, model) :
     """ Kim & Wright modelによる推計
@@ -41,9 +40,9 @@ def main_run(hyper_param_dict, folder_path, country, model) :
         }
 
     # データセッティング
-    data_setting, bool_setting = hyper_param_dict[model]["data_setting"], hyper_param_dict[model]["setting_bool"]
+    data_setting, bool_setting = hyperparams_dict[model]["data_setting"], hyperparams_dict[model]["setting_bool"]
     # csvの格納されたURLの確認
-    file_dict = hyper_param_dict["Country"][country]
+    file_dict = hyperparams_dict["Country"][country]
     # 結果の保存パスを設定
     save_path = set_save_folder_path(folder_path, model, country, train_test_dict)
     # パラメータデータの整理
@@ -55,11 +54,24 @@ def main_run(hyper_param_dict, folder_path, country, model) :
     # model に基づき推計を実施
     if model == "ACM_model":
         result_dict = AMC_model_main(X_train, data_setting, bool_setting)
+        ACM_save_result_to_pdf(save_path, result_dict, data_setting)
     elif model == "KW_model":
-        result_dict = KW_model_main(X_train, data_setting)
+        # 結果格納時の辞書key
+        # name_list = ["filtered_yield", "smoothed_yield", "fixed-interval_smoothed_yield"]
+        # result_dict, estimate_params = KW_model_main(X_train, data_setting, bool_setting, name_list)
+        
+        # 別アプローチの検討
+        name_list = ["filtered_state", "predicted_state", "smoothed_state"]
+        result_dict, estimate_params = main_KW_model(X_train, data_setting, bool_setting, name_list)
 
-    print("a")
+        # KW_model のみ (パラメータ推計結果)
+        save_estimate_params(save_path, estimate_params)
+        KW_save_result_to_pdf(save_path, result_dict, data_setting)
 
+    # 結果をExcelに出力
+    save_result_to_excel(save_path, result_dict, model)
+
+    print("終了")
 
 
 if __name__ == "__main__":
@@ -69,7 +81,7 @@ if __name__ == "__main__":
     # 推計するモデル
     estimate_model = ["KW_model"] # リストに含まれたモデルのみ推計 (ACM_model, KW_model)
     # 出力結果保存用のフォルダパス
-    folder_path = r"C:\Users\bldyr\OneDrive\デスクトップ\自己研鑽用\02_FT勉強会\2023年度\研究開発（親会社）\02_下期\code\result"
+    folder_path = r"C:\Users\bldyr\OneDrive\デスクトップ\自己研鑽用\20_GitHub\Programing\00_TermPremium\result"
 
     for model in estimate_model:
         for country, key in hyperparams_dict["Country"].items():

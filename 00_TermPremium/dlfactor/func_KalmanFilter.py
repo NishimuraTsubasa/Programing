@@ -14,7 +14,7 @@ class MatrixOperations:
 
     @staticmethod
     def integral(K, Sigma, integrate_range):
-        """行列の積分を行う"""
+        """ 行列の積分を行う """
 
         def matrix_function(s, K, Sigma):
             """積分対象の関数"""
@@ -34,7 +34,6 @@ class MatrixOperations:
 
         return integrate_matrix
 
-
 class TransitionParametersCalculator:
     """状態遷移パラメータの計算を行うクラス"""
 
@@ -43,7 +42,7 @@ class TransitionParametersCalculator:
         self.data_setting = data_setting
 
     def calculate(self):
-        """状態遷移パラメータ(K_delta_t, Q_t)の計算"""
+        """ 状態遷移パラメータ(K_delta_t, Q_t)の計算 """
         try:
             if self.data_setting["estimate_term"] == "週次":
                 delta_t = 1 / 52
@@ -55,13 +54,12 @@ class TransitionParametersCalculator:
 
         K = self.params_list[5] * delta_t
         Sigma = self.params_list[4]
-        integrate_range = [0, 10]  # 積分範囲
+        integrate_range = [0, delta_t] # 積分範囲
 
         K_delta_t = MatrixOperations.exponential_approximate(K)
         Q_t = MatrixOperations.integral(K, Sigma, integrate_range)
 
         return K_delta_t, Q_t
-
 
 class DifferentialEquationSolver:
     def __init__(self, params_list, data_setting):
@@ -70,19 +68,19 @@ class DifferentialEquationSolver:
 
     def make_estimate_maturity_array(self):
         # 1年を12ヶ月として、10年分の月次データを生成します。
-        maturity_array = np.arange(1, self.data_setting["maturities"] + 1)[np.newaxis:] / (self.data_setting["maturities"] / 10) 
+        maturity_array = np.arange(1, self.data_setting["maturities"] + 1)[np.newaxis:] / (self.data_setting["maturities"] / 10)
         return maturity_array
 
     def solve_an_bn_differential_equation(self, t, init_matrix):
         a, b = init_matrix[0], init_matrix[1:]
-        rho_0, phi, rho, Phi, Sigma, K = self.params_list
-        da_dt = -rho_0 - np.dot(b.T, np.dot(Sigma, phi)) + 0.5 * np.dot(b.T, np.dot(Sigma, np.dot(Sigma.T, b)))
-        db_dt = -rho + np.dot(K - np.dot(Sigma, Phi).T, b)
+        rho_0, rho, phi, Phi, Sigma, K, state_covariance = self.params_list
+        da_dt = - rho_0 - np.dot(np.dot(b.T, Sigma), phi) + 0.5 * np.dot(np.dot(np.dot(b.T, Sigma), Sigma.T), b)
+        db_dt = - rho + np.dot((K - np.dot(Sigma, Phi)).T, b)
         return np.concatenate((da_dt, db_dt))
 
     def solve_differential_equation(self, remain_term_array, init_matrix):
         method = self.data_setting["solve_ode_method"]
-        
+
         solution = solve_ivp(
             self.solve_an_bn_differential_equation,
             t_span = [0, np.max(remain_term_array)],
@@ -97,13 +95,21 @@ class DifferentialEquationSolver:
         return solution
 
     def calc_observation_params(self):
-        remain_term_array = np.array(self.data_setting["residural_array"]) / 12
+        remain_term_array = np.array(self.data_setting["residual_array"]) / 12
         remain_term_array_reshaped = remain_term_array.reshape(-1, 1)
         init_matrix = self.data_setting["an_and_bn_init_value"]
         solution = self.solve_differential_equation(remain_term_array, init_matrix)
-        solve_at = -solution.y[0, :] / remain_term_array_reshaped  # 観測方程式の定数項
+        solve_at = -solution.y[0, :] / remain_term_array # 観測方程式の定数項
         solve_bt = -solution.y[1:, :].T / remain_term_array_reshaped  # 観測方程式の係数（各状態変数に対する）
-        return solve_at, solve_bt
+
+        # 検証用
+        test_array = np.arange(1, (max(self.data_setting["residual_array"]) + 1)) / max(self.data_setting["residual_array"]) * 10
+        test_solution = self.solve_differential_equation(test_array, init_matrix)
+        test_solve_at = -test_solution.y[0, np.array(self.data_setting["residual_array"]) - 1] / remain_term_array  # 観測方程式の定数項
+        test_solve_bt = -test_solution.y[1:, np.array(self.data_setting["residual_array"]) - 1].T / remain_term_array_reshaped # 観測方程式の係数（各状態変数に対する）
+
+        # return solve_at, solve_bt
+        return test_solve_at, test_solve_bt
 
 
 #####################################################
