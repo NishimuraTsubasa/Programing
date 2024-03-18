@@ -9,23 +9,32 @@ class KalmanFilter:
         self.params_list = arrange_param_array_to_list(params_array, data_setting, setting_bool)
         self.data_setting = data_setting
         self.setting_bool = setting_bool
+        Transition_Parameters_Calculator = TransitionParametersCalculator(self.params_list, self.data_setting)
+        self.K_delta_t, self.Q_t = Transition_Parameters_Calculator.calculate()
         self.name_list = name_list
         self.log_likelihood = 0
         # 状態を格納する辞書を初期化
         self.state_mean_dict = {state_name: [] for state_name in self.name_list}
         self.state_covariance_dict = {state_name: [] for state_name in self.name_list}
 
-
     def run_kalman_filter(self):
         state_vector = self.data_setting["state_variable_initial_array"][0]
-        state_covariance = MatrixOperations.integral(self.params_list[5], self.params_list[4], integrate_range=[0, 10]) # 積分範囲は[0, 10]
+        state_covariance = MatrixOperations.integral(self.params_list[5], self.params_list[4], integrate_range = [0, 1000]) # 積分範囲は[0, 10]
 
         for t in range(len(self.observe_yield)):
             filtered_state, filtered_covariance = self.predict_state(state_vector, state_covariance) # 1期先予測
+            # print(filtered_state, filtered_covariance)
             solve_at, solve_bt = self.calc_observation_params() # 状態変数の計算
+
+            # print(t)
+            # solve_at または solve_bt が全てゼロの場合、処理を中断
+            if np.all(solve_at == 0) or np.all(solve_bt == 0):
+                print("solve_at または solve_bt がゼロの配列です。対数尤度を無限大に設定します。")
+                return -100000000000, {}, {}
+
             conditional_yield = np.dot(solve_bt, state_vector) + solve_at # 1期先予測イールド
             selected_observe_yield, selected_conditional_yield = self.observe_yield.iloc[t, :], conditional_yield # 1期先予測
-            Ft, vt, Kt = self.calc_kalman_gain(self, selected_observe_yield, selected_conditional_yield, filtered_covariance, solve_bt) # カルマンゲイン
+            Ft, vt, Kt = self.calc_kalman_gain(selected_observe_yield, selected_conditional_yield, filtered_covariance, solve_bt) # カルマンゲイン
             state_vector, state_covariance = self.update_state(filtered_state, filtered_covariance, solve_bt, Kt, vt) # フィルタリング値
             self.log_likelihood += self.calc_log_likelihood(vt, Ft) # 対数尤度
             self.store_results(t, filtered_state, filtered_covariance, state_vector, state_covariance) # 結果の保存
@@ -63,7 +72,7 @@ class KalmanFilter:
         differential_equation_solver = DifferentialEquationSolver(self.params_list, self.data_setting)
         solve_at, solve_bt = differential_equation_solver.calc_observation_params()
         return solve_at, solve_bt
-    
+
     def rts_smoother(self):
         n_timesteps = len(self.observe_yield)
         # 平滑化された状態と共分散を格納するための空リストを初期化
@@ -71,20 +80,20 @@ class KalmanFilter:
         smoothed_covariance = [None] * n_timesteps
 
         # 最後のフィルタリングされた状態と共分散を平滑化された最終状態として使用
-        smoothed_state[-1] = self.state_dict[self.name_list[0]][-1]  # filtered_stateを参照
+        smoothed_state[-1] = self.state_mean_dict[self.name_list[0]][-1]  # filtered_stateを参照
         smoothed_covariance[-1] = self.state_covariance_dict[self.name_list[0]][-1]
 
         # 時間を逆向きにループして平滑化を実行
         for t in reversed(range(n_timesteps - 1)):
             # ゲインの計算
-            Ck = np.dot(self.state_covariance_dict["filtered_covariance"][t], np.linalg.inv(self.state_covariance_dict["predicted_covariance"][t + 1]))
+            Ck = np.dot(self.state_covariance_dict[self.name_list[0]][t], np.linalg.inv(self.state_covariance_dict[self.name_list[1]][t + 1]))
 
             # 平滑化された状態と共分散の計算
-            smoothed_state[t] = self.state_mean_dict["filtered_state"][t] + np.dot(Ck, (smoothed_state[t + 1] - self.state_mean_dict["predicted_state"][t + 1]))
-            smoothed_covariance[t] = self.state_covariance_dict["filtered_covariance"][t] + np.dot(Ck, (smoothed_covariance[t + 1] - self.state_covariance_dict["predicted_covariance"][t + 1])).dot(Ck.T)
+            smoothed_state[t] = self.state_mean_dict[self.name_list[0]][t] + np.dot(Ck, (smoothed_state[t + 1] - self.state_mean_dict[self.name_list[1]][t + 1]))
+            smoothed_covariance[t] = self.state_covariance_dict[self.name_list[0]][t] + np.dot(Ck, (smoothed_covariance[t + 1] - self.state_covariance_dict[self.name_list[1]][t + 1])).dot(Ck.T)
 
         # 平滑化された状態と共分散をstate_dictに追加
-        self.state_dict[self.name_list[2]] = smoothed_state  # smoothed_stateを更新
+        self.state_mean_dict[self.name_list[2]] = smoothed_state  # smoothed_stateを更新
         self.state_covariance_dict[self.name_list[2]] = smoothed_covariance
 
     def store_results(self, t, filtered_state, filtered_covariance, state_vector, state_covariance):
@@ -92,13 +101,13 @@ class KalmanFilter:
         # ここではフィルタリングと予測の状態を保存
         if t == 0:
             # 初期状態の設定
-            self.state_dict[self.name_list[0]] = [filtered_state]  # filtered_state
-            self.state_dict[self.name_list[1]] = [state_vector]  # predicted_state
+            self.state_mean_dict[self.name_list[0]] = [filtered_state]  # filtered_state
+            self.state_mean_dict[self.name_list[1]] = [state_vector]  # predicted_state
             self.state_covariance_dict[self.name_list[0]] = [filtered_covariance]
             self.state_covariance_dict[self.name_list[1]] = [state_covariance]
         else:
             # 後続の状態の追加
-            self.state_dict[self.name_list[0]].append(filtered_state)
-            self.state_dict[self.name_list[1]].append(state_vector)
+            self.state_mean_dict[self.name_list[0]].append(filtered_state)
+            self.state_mean_dict[self.name_list[1]].append(state_vector)
             self.state_covariance_dict[self.name_list[0]].append(filtered_covariance)
             self.state_covariance_dict[self.name_list[1]].append(state_covariance)

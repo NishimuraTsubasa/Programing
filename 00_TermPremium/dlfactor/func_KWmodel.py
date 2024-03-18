@@ -17,7 +17,7 @@ def KW_model_main(X_train, data_setting, setting_bool, name_list):
     _, selected_yield = calc_init_state_covariance(X_train, data_setting)
     # # システムパラメータの推計
     estimate_params = estimate_params_list(
-        selected_yield, data_setting, setting_bool, iteration_count = data_setting["iteration_number"]
+        selected_yield, data_setting, setting_bool, iteration_count = data_setting["iteration_count"]
         )
 
     # Kalman Filter のインスタンス化
@@ -53,41 +53,73 @@ def KW_model_main(X_train, data_setting, setting_bool, name_list):
 
 def estimate_params_list(selected_yield, data_setting, setting_bool, iteration_count):
     """ システムパラメータを推計する関数 """
-    # ランダムに配列を作成
-    param_array, bound = make_init_params_bounds(selected_yield, data_setting, setting_bool)
+    # 異なる初期値での最適化を実行
+    best_solution = None
+    best_value = np.inf
 
-    # scipyによる最適化
-    estimate_params = minimize(
-        log_likelihood, # 最適化関数
-        x0 = param_array, # パラメータ初期値
-        args = (data_setting, setting_bool, selected_yield),
-        bounds = bound, # 制約条件
-        method = data_setting["log_likelihood_method"], # 最適化方法
-        options = {"maxiter" : iteration_count} # イテレーション数
-    )
+    for count in range(data_setting["init_value_try_count"]):
+        # ランダムに配列を作成
+        param_array, bound = make_init_params_bounds(selected_yield, data_setting, setting_bool)
+        # scipyによる最適化
+        result = minimize(
+            log_likelihood, # 最適化関数
+            x0 = param_array, # パラメータ初期値
+            args = (data_setting, setting_bool, selected_yield),
+            bounds = bound, # 制約条件
+            method = data_setting["log_likelihood_method"], # 最適化方法
+            options = {"maxiter" : iteration_count, # # イテレーション数
+                    'verbose': 2} # 最適化の進行状況
+        )
+        # 試行回数の確認
+        print(f"try {count + 1} result : {result.success}")
+
+        # 最適化の確認
+        if result.fun < best_value: # result.success and
+            best_value = result.fun
+            best_solution = result.x
+
     # リスト形式に変換して出力
-    estimate_params = arrange_param_array_to_list(estimate_params.x, data_setting, setting_bool)
+    estimate_params = arrange_param_array_to_list(best_solution, data_setting, setting_bool)
 
     return estimate_params
 
 
-    
 def log_likelihood(params_array, data_setting, setting_bool, selected_yield):
     """ KWモデルによるイールドカーブ, タームプレミアム, リスクフリーレートを推計 """
 
     # パラメータのリスト
     params_list = arrange_param_array_to_list(params_array, data_setting, setting_bool)
 
-    # カルマンフィルターのインスタンス設定
-    kf = kalman_filter(params_list, data_setting)
-    # EMアルゴリズムによるパラメータの最適化
-    kf = kf.em(selected_yield, n_iter = 3)
-    # カルマンフィルターにおける対数尤度を計算
-    lk = kf.loglikelihood(selected_yield)
+    # try:
+    #     # カルマンフィルターのインスタンス設定
+    #     kf = kalman_filter(params_list, data_setting)
+    #     # EMアルゴリズムによるパラメータの最適化
+    #     kf = kf.em(selected_yield, n_iter = 3)
+    #     # カルマンフィルターにおける対数尤度を計算
+    #     lk = kf.loglikelihood(selected_yield)
+    #     # 数値計算
+    #     print(f"対数尤度 : {lk}")
+    #     return -lk
+    # except Exception as e:
+    #     print(f"計算失敗: {e}")
+    #     return np.inf # 失敗した場合は大きなペナルティを課す
 
-    print(f"対数尤度 : {lk}")
+    try:
+        # カルマンフィルターのインスタンス設定
+        kf = kalman_filter(params_list, data_setting)
+        # # EMアルゴリズムによるパラメータの最適化
+        # kf = kf.em(selected_yield, n_iter = 3)
+        # カルマンフィルターにおける対数尤度を計算
+        lk = kf.loglikelihood(selected_yield)
+        # # 数値計算
+        # print(f"対数尤度 : {lk}")
+    except np.linalg.LinAlgError as e:
+        if 'not positive definite' in str(e):
+            # print("正定値行列でないため、処理をスキップします。")
+            lk = -1000000000000
 
     return -lk
+
 
 def kalman_filter(params_list, data_setting):
     """" カルマンフィルターによる推計を行う関数 """
@@ -132,7 +164,7 @@ def kalman_smoothing(selected_yield, kf, name_list):
 
     # ハイパーパラメータ推計後のイールド推計値
     # # フィルタリング結果
-    yield_result_list.append(np.dot(em_filtered_state_mean, kf.observation_matrices.T) + kf.observation_offsets)
+    yield_result_list.append(np.dot(kf.observation_matrices, em_filtered_state_mean.T).T + kf.observation_offsets)
     # # スムージングによる推計結果
     yield_result_list.append(np.dot(em_smoothed_state_mean, kf.observation_matrices.T) + kf.observation_offsets)
 

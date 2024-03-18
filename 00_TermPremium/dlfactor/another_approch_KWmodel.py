@@ -89,9 +89,9 @@ def main_KW_model(X_train, data_setting, setting_bool, name_list):
     # イールドの抽出
     selected_yield = X_train.iloc[:, np.array(data_setting["residual_array"]) - 1]
     # システムパラメータの最適化
-    estimate_params_array =  parameter_estimation(selected_yield, data_setting, setting_bool)
+    estimate_params_array =  parameter_estimation(selected_yield, data_setting, setting_bool, name_list)
     # 状態変数の出力
-    state_mean_dict = calc_state_vector(selected_yield, data_setting, setting_bool, estimate_params_array)
+    state_mean_dict = calc_state_vector(selected_yield, data_setting, setting_bool, estimate_params_array, name_list)
     # イールドの予測
     result_dict = calc_estimate_yield(state_mean_dict, data_setting, estimate_params_array)
 
@@ -115,7 +115,7 @@ def main_KW_model(X_train, data_setting, setting_bool, name_list):
             "term_premium" : term_premium_dict[name], # タームプレミアム推計結果
             "estimate_rf_rate" : zero_result_dict[name] # リスクフリー・イールド推計結果
         }
-    
+
     return result_dict, arrange_param_array_to_list(estimate_params_array, data_setting, setting_bool)
 
 
@@ -124,23 +124,22 @@ def calc_estimate_yield(state_mean_dict, data_setting, estimate_params_array):
 
     # DifferentialEquationSolverのインスタンス作成
     differential_equation_solver = DifferentialEquationSolver(estimate_params_array, data_setting)
-    solve_at, solve_bt = differential_equation_solver.calc_observation_params() 
+    solve_at, solve_bt = differential_equation_solver.calc_observation_params()
     # 推計結果の保存
     result_dict = {}
     for key, state_mean in state_mean_dict.items():
-        result_dict[key] = np.dot(solve_bt, state_mean) + solve_at
+        yield_list = np.empty((len(state_mean), solve_bt.shape[0]))
+        for t, state in enumerate(state_mean):
+            yield_list[t] = np.append(yield_list, np.array([np.dot(solve_bt, state) + solve_at]), axis = 0)
+        result_dict[key] = np.dot(solve_bt, state) + solve_at
 
     return result_dict
 
 
-def calc_state_vector(observe_yield, data_setting, setting_bool, estimate_params_array, name_list):
+def calc_state_vector(selected_yield, data_setting, setting_bool, estimate_params_array, name_list):
     """ 状態変数を計算する関数 """
-    # イールドの抽出
-    selected_yield = observe_yield[:, data_setting["residual_array"] - 1]
-    # システムパラメータの設定
-    param_array, bound = make_init_params_bounds(selected_yield, data_setting, setting_bool)
     # カルマンフィルターのインスタンス化
-    kf = KalmanFilter(observe_yield, data_setting, setting_bool, estimate_params_array, name_list)
+    kf = KalmanFilter(selected_yield, data_setting, setting_bool, estimate_params_array, name_list)
     # 状態変数の出力
     _, state_mean_dict, _ = kf.run_kalman_filter()
 
@@ -166,10 +165,20 @@ def parameter_estimation(selected_yield, data_setting, setting_bool, name_list):
 
 def objective_function(params_array, observe_yield, data_setting, setting_bool, name_list):
     """ 対数尤度の関数 """
+    # try:
+    #     kf = KalmanFilter(observe_yield, data_setting, setting_bool, params_array, name_list)
+    #     log_likelihood, _, _ = kf.run_kalman_filter()
+    #     print(log_likelihood)
+    #     return -log_likelihood  # 対数尤度のマイナス倍を最小化
+    # except Exception as e:
+    #     print(f"計算失敗: {e}")
+    #     return np.inf
+
     kf = KalmanFilter(observe_yield, data_setting, setting_bool, params_array, name_list)
     log_likelihood, _, _ = kf.run_kalman_filter()
-
+    print(log_likelihood)
     return -log_likelihood  # 対数尤度のマイナス倍を最小化
+
 
 def restore_params_from_list(params_list):
     """ ベクトルや行列を含むリストから1次元配列を復元する関数 """

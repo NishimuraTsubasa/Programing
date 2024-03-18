@@ -68,48 +68,54 @@ class DifferentialEquationSolver:
 
     def make_estimate_maturity_array(self):
         # 1年を12ヶ月として、10年分の月次データを生成します。
-        maturity_array = np.arange(1, self.data_setting["maturities"] + 1)[np.newaxis:] / (self.data_setting["maturities"] / 10)
+        maturity_array = np.arange(0, self.data_setting["maturities"] + 1)[np.newaxis:] / (self.data_setting["maturities"] / 10)
         return maturity_array
 
     def solve_an_bn_differential_equation(self, t, init_matrix):
         a, b = init_matrix[0], init_matrix[1:]
         rho_0, rho, phi, Phi, Sigma, K, state_covariance = self.params_list
-        da_dt = - rho_0 - np.dot(np.dot(b.T, Sigma), phi) + 0.5 * np.dot(np.dot(np.dot(b.T, Sigma), Sigma.T), b)
-        db_dt = - rho + np.dot((K - np.dot(Sigma, Phi)).T, b)
+        # da_dt = - rho_0 - np.dot(np.dot(b.T, Sigma), phi) + 0.5 * np.dot(np.dot(np.dot(b.T, Sigma), Sigma.T), b)
+        # db_dt = - rho + np.dot((K - np.dot(Sigma, Phi)).T, b)
+        da_dt = rho_0 + np.dot(np.dot(b.T, Sigma), phi) - 0.5 * np.dot(np.dot(np.dot(b.T, Sigma), Sigma.T), b)
+        db_dt = rho - np.dot((K - np.dot(Sigma, Phi)).T, b)
+
         return np.concatenate((da_dt, db_dt))
+
 
     def solve_differential_equation(self, remain_term_array, init_matrix):
         method = self.data_setting["solve_ode_method"]
-
-        solution = solve_ivp(
-            self.solve_an_bn_differential_equation,
-            t_span = [0, np.max(remain_term_array)],
-            y0 = init_matrix,
-            method = method,
-            t_eval = remain_term_array
-        )
-        if not solution.success:
-            raise Exception("常微分方程式の計算に失敗しました。")
-        else:
-            print("常微分方程式の計算に成功しました")
-        return solution
+        try:
+            solution = solve_ivp(
+                self.solve_an_bn_differential_equation,
+                t_span = [0, np.max(remain_term_array)],
+                y0 = init_matrix,
+                method = method,
+                t_eval = remain_term_array
+            )
+            # print("常微分方程式の計算に成功しました")
+            return solution
+        except Exception as e:
+            print(f"常微分方程式の計算に失敗しました: {e}")
+            return None  # または適切なデフォルト値
 
     def calc_observation_params(self):
+
         remain_term_array = np.array(self.data_setting["residual_array"]) / 12
         remain_term_array_reshaped = remain_term_array.reshape(-1, 1)
         init_matrix = self.data_setting["an_and_bn_init_value"]
         solution = self.solve_differential_equation(remain_term_array, init_matrix)
-        solve_at = -solution.y[0, :] / remain_term_array # 観測方程式の定数項
-        solve_bt = -solution.y[1:, :].T / remain_term_array_reshaped  # 観測方程式の係数（各状態変数に対する）
+        # residual_term_array = self.make_estimate_maturity_array()
+        # residual_term_array_reshape = residual_term_array.reshape(-1, 1)
+        # solution = self.solve_differential_equation(residual_term_array, init_matrix)
+        if solution is None: #  or solution.y == []
+            return np.zeros(remain_term_array.shape), np.zeros((len(remain_term_array), self.data_setting["factor_num"]))
+        else:
+            solve_at = -solution.y[0, :] / remain_term_array # 観測方程式の定数項
+            solve_bt = -solution.y[1:, :].T / remain_term_array_reshaped  # 観測方程式の係数（各状態変数に対する）
+            # solve_at = -solution.y[0, self.data_setting["residual_array"]] / remain_term_array # 観測方程式の定数項
+            # solve_bt = -solution.y[1:, self.data_setting["residual_array"]].T / remain_term_array_reshaped  # 観測方程式の係数（各状態変数に対する）
 
-        # 検証用
-        test_array = np.arange(1, (max(self.data_setting["residual_array"]) + 1)) / max(self.data_setting["residual_array"]) * 10
-        test_solution = self.solve_differential_equation(test_array, init_matrix)
-        test_solve_at = -test_solution.y[0, np.array(self.data_setting["residual_array"]) - 1] / remain_term_array  # 観測方程式の定数項
-        test_solve_bt = -test_solution.y[1:, np.array(self.data_setting["residual_array"]) - 1].T / remain_term_array_reshaped # 観測方程式の係数（各状態変数に対する）
-
-        # return solve_at, solve_bt
-        return test_solve_at, test_solve_bt
+            return solve_at, solve_bt
 
 
 #####################################################

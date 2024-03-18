@@ -9,31 +9,6 @@ from scipy.integrate import quad
 from scipy.integrate import solve_ivp
 
 
-def make_init_params_bounds(selected_yield, data_setting, setting_bool, scale_trans = 1/10):
-    """パラメータ配列を適切な形に変換する関数
-    """
-    # 必要なパラメータの抽出
-    factor_num, matrix_num, vector_num = data_setting["factor_num"], 3, 2
-    # 必要なパラメータの整理
-    if setting_bool["K_and_Sigma_restrict"]:
-        need_param_num = 1 + factor_num * vector_num + factor_num ** 2 * matrix_num - 9
-        bounds = make_bound_array(need_param_num * selected_yield.shape[1] ** 2, start_index = 16, end_index = 19)
-    else:
-        need_param_num = 1 + factor_num * vector_num + factor_num ** 2 * matrix_num
-        bounds = make_bound_array(need_param_num * selected_yield.shape[1] ** 2, start_index = 16, end_index = 25)
-
-    # パラメータの初期値設定
-    np.random.seed(1) # 乱数固定
-    params = np.random.rand(need_param_num) * scale_trans
-    # 分散の初期値を設定
-    init_state_covariance = np.cov(selected_yield, rowvar = False, bias = True).flatten()
-    # 生成したパラメータを結合
-    params = np.concatenate((params, init_state_covariance))
-
-    return params, bounds
-
-
-
 def calc_init_state_covariance(yield_curve, data_setting):
     """ イールドカーブから必要データを抽出して分散を計算 """
     # イールドカーブの抽出
@@ -44,34 +19,28 @@ def calc_init_state_covariance(yield_curve, data_setting):
     return init_state_covariance, selected_yield
 
 
-def make_init_params_bounds(selected_yield, data_setting, setting_bool, scale_trans = 1/10):
+def make_init_params_bounds(selected_yield, data_setting, setting_bool):
     """ パラメータ配列を適切な形に変換する関数 """
     # 必要なパラメータの抽出
     matrix_num, vector_num = 3, 2
     factor_num = data_setting["factor_num"]
     # 必要なパラメータ数の整理
     if setting_bool["K_and_Sigma_restrict"]:
-        need_param_num = 1 + factor_num * vector_num + factor_num ** 2 * matrix_num - 9 #
+        need_param_num = 1 + factor_num * vector_num + factor_num ** 2 * matrix_num - 3/2 * factor_num * (factor_num - 1)  #
     else:
         need_param_num = 1 + factor_num * vector_num + factor_num ** 2 * matrix_num
-
-    # 制約条件の追加
-    if setting_bool["rho_restrict"]:
-        bounds = make_bound_array(
-            need_param_num + selected_yield.shape[1]**2, (1, 1), start_index = 1, end_index = 3
-            )
-    else:
-        bounds = make_bound_array(
-            need_param_num + selected_yield.shape[1]**2, (None, None), start_index = 1, end_index = 3
-            )
+    need_param_num = int(need_param_num)
 
     # パラメータの初期値設定
-    np.random.seed(777) # 乱数固定
-    params_array = np.random.rand(need_param_num) * scale_trans
+    # np.random.seed(data_setting["random_seed"]) # 乱数固定
+    params_array = np.random.rand(need_param_num) * data_setting["init_scale"]
     # 分散の初期値を設定
     init_state_covariance = np.cov(selected_yield, rowvar = False, bias = True).flatten()
     # 後ろに結合
     params_array = np.concatenate((params_array, init_state_covariance))
+
+    # 制約条件(\rho) の追加
+    bounds = make_bound_array(setting_bool, len(params_array), (1, 1), start_index = 1, end_index = factor_num)
 
     return params_array, bounds
 
@@ -106,26 +75,31 @@ def arrange_param_array_to_list(params, data_setting, setting_bool):
         # # 下三角行列のインデックスを取得
         tril_indices = np.tril_indices(params_list[4].shape[0])
         # 復元する
-        K_[tril_indices] = - K
+        K_[tril_indices] = K
         params_list.append(K_)
         # 最後の部分更新
         end = end + int(factor_num * (factor_num + 3) / 2)
 
     # 観測方程式の分散共分散行列の追加
     # # 観測方程式の次元数
-    n_dim_obs = len(data_setting["residual_array"])
+    try:
+        n_dim_obs = len(data_setting["residual_array"])
+    except Exception as e:
+        n_dim_obs = 1
+
     params_list.append(params[end:].reshape(n_dim_obs, n_dim_obs))
 
     return params_list
 
-def make_bound_array(need_param_num, restrict_range, start_index, end_index):
+def make_bound_array(setting_bool, need_param_num, restrict_range, start_index, end_index):
     """ 制約条件を格納したリストを準備 """
     # 制約条件を入力した箱を準備
-    bounds = [(None, None)] * need_param_num
+    bounds = [(-1, 1)] * need_param_num
     # 指定した範囲の要素に対して非正値の制約を設定
+    if setting_bool["rho_restrict"]:
+        for i in range(start_index, min(end_index + 1, need_param_num)):
+            bounds[i] = restrict_range
 
-    for i in range(start_index, min(end_index + 1, need_param_num)):
-        bounds[i] = restrict_range
     return bounds
 
 def calc_term_premium_and_save_result(yield_dict, zero_yield_dict):

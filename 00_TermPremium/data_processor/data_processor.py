@@ -258,7 +258,7 @@ def save_estimate_params(save_path, estimate_params):
             pd.DataFrame(result).to_excel(writer, sheet_name = param_name_list[i])
 
 
-def set_save_folder_path(folder_path, model, country, train_test_dict):
+def set_save_folder_path(data_setting, folder_path, model, country, train_test_dict):
     """ 結果を格納するフォルダパスの作成
 
     Parameters:
@@ -287,11 +287,17 @@ def set_save_folder_path(folder_path, model, country, train_test_dict):
     start, end = train_test_dict["train_start_date"].strftime("%Y%m%d"), train_test_dict["train_end_date"].strftime("%Y%m%d")
     # フォルダ名
     folder_name = f"{start}_{end}"
-    save_path = os.path.join(data_save_path, folder_name)
+    data_save_path = os.path.join(data_save_path, folder_name)
     # フォルダが存在しない場合は新規作成
-    os.makedirs(save_path, exist_ok = True)
+    os.makedirs(data_save_path, exist_ok = True)
+    # 残存年数に応じてフォルダ作成
+    path = str(data_setting["factor_num"]) + "factor_" + str(data_setting["residual_array"])
+    data_save_path = os.path.join(data_save_path, path)
+    # フォルダが存在しない場合は新規作成
+    os.makedirs(data_save_path, exist_ok = True)
 
-    return save_path
+    return data_save_path
+
 
 def save_result_to_excel(save_path, result_dict, model):
     """ Excel(.xlsx) に結果を出力する関数 """
