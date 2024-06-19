@@ -19,7 +19,7 @@ def calc_init_state_covariance(yield_curve, data_setting):
     return init_state_covariance, selected_yield
 
 
-def make_init_params_bounds(selected_yield, data_setting, setting_bool):
+def make_init_params_bounds(selected_yield, data_setting, setting_bool, random_):
     """ パラメータ配列を適切な形に変換する関数 """
     # 必要なパラメータの抽出
     matrix_num, vector_num = 3, 2
@@ -32,8 +32,8 @@ def make_init_params_bounds(selected_yield, data_setting, setting_bool):
     need_param_num = int(need_param_num)
 
     # パラメータの初期値設定
-    # np.random.seed(data_setting["random_seed"]) # 乱数固定
-    params_array = np.random.rand(need_param_num) * data_setting["init_scale"]
+    np.random.seed(random_) # 乱数固定
+    params_array = np.random.rand(need_param_num) * data_setting["init_scale"] # 乱数の初期値はここで変えれる
     # 分散の初期値を設定
     init_state_covariance = np.cov(selected_yield, rowvar = False, bias = True).flatten()
     # 後ろに結合
@@ -75,7 +75,7 @@ def arrange_param_array_to_list(params, data_setting, setting_bool):
         # # 下三角行列のインデックスを取得
         tril_indices = np.tril_indices(params_list[4].shape[0])
         # 復元する
-        K_[tril_indices] = K
+        K_[tril_indices] = - K
         params_list.append(K_)
         # 最後の部分更新
         end = end + int(factor_num * (factor_num + 3) / 2)
@@ -88,8 +88,10 @@ def arrange_param_array_to_list(params, data_setting, setting_bool):
         n_dim_obs = 1
 
     params_list.append(params[end:].reshape(n_dim_obs, n_dim_obs))
+    params_list[2], params_list[3] = params_list[2] * 1/10, params_list[3] * 1/10
 
     return params_list
+
 
 def make_bound_array(setting_bool, need_param_num, restrict_range, start_index, end_index):
     """ 制約条件を格納したリストを準備 """

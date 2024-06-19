@@ -202,7 +202,7 @@ def ACM_save_result_to_pdf(file_path, result_dict, data_setting):
             fig.autofmt_xdate()
             axes.set_ylabel("Percent")
             axes.set_xlabel("date")
-            axes.set_title(f"{int({i/12})} year Yield Curve Decomposed")
+            axes.set_title(f"{int(i/12)} year Yield Curve Decomposed")
             axes.set_ylim(-2, 10.5) # 全グラフでy軸一定
             axes.grid(which = "major", axis = "y", color = "black", alpha = 0.5, linestyle = "--", linewidth = 0.5)
             # 凡例を付ける
@@ -239,7 +239,7 @@ def KW_save_result_to_pdf(file_path, result_dict, data_setting):
                 axes.set_ylabel("Percent")
                 axes.set_xlabel("date")
                 axes.set_title(f"{col} year Yield Curve Decomposed")
-                axes.set_ylim(-2, 10.5) # 全グラフでy軸一定
+                # axes.set_ylim(-2, 10.5) # 全グラフでy軸一定
                 axes.grid(which = "major", axis = "y", color = "black", alpha = 0.5, linestyle = "--", linewidth = 0.5)
                 # 凡例を付ける
                 plt.legend(loc = 'upper right', fontsize = 6)
@@ -291,10 +291,14 @@ def set_save_folder_path(data_setting, folder_path, model, country, train_test_d
     # フォルダが存在しない場合は新規作成
     os.makedirs(data_save_path, exist_ok = True)
     # 残存年数に応じてフォルダ作成
-    path = str(data_setting["factor_num"]) + "factor_" + str(data_setting["residual_array"])
-    data_save_path = os.path.join(data_save_path, path)
-    # フォルダが存在しない場合は新規作成
-    os.makedirs(data_save_path, exist_ok = True)
+    if model == "KW_model":
+        path = str(data_setting["factor_num"]) + "factor_" + str(data_setting["residual_array"])
+        data_save_path = os.path.join(data_save_path, path)
+        # フォルダが存在しない場合は新規作成
+        os.makedirs(data_save_path, exist_ok = True)
+        # methodに関してもフォルダ追加
+        data_save_path = os.path.join(data_save_path, data_setting["log_likelihood_method"])
+        os.makedirs(data_save_path, exist_ok = True)
 
     return data_save_path
 

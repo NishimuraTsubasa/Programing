@@ -74,10 +74,10 @@ class DifferentialEquationSolver:
     def solve_an_bn_differential_equation(self, t, init_matrix):
         a, b = init_matrix[0], init_matrix[1:]
         rho_0, rho, phi, Phi, Sigma, K, state_covariance = self.params_list
-        # da_dt = - rho_0 - np.dot(np.dot(b.T, Sigma), phi) + 0.5 * np.dot(np.dot(np.dot(b.T, Sigma), Sigma.T), b)
-        # db_dt = - rho + np.dot((K - np.dot(Sigma, Phi)).T, b)
-        da_dt = rho_0 + np.dot(np.dot(b.T, Sigma), phi) - 0.5 * np.dot(np.dot(np.dot(b.T, Sigma), Sigma.T), b)
-        db_dt = rho - np.dot((K - np.dot(Sigma, Phi)).T, b)
+        da_dt = - rho_0 - np.dot(np.dot(b.T, Sigma), phi) + 0.5 * np.dot(np.dot(np.dot(b.T, Sigma), Sigma.T), b)
+        db_dt = - rho + np.dot((K - np.dot(Sigma, Phi)).T, b)
+        # da_dt = rho_0 + np.dot(np.dot(b.T, Sigma), phi) - 0.5 * np.dot(np.dot(np.dot(b.T, Sigma), Sigma.T), b)
+        # db_dt = rho - np.dot((K - np.dot(Sigma, Phi)).T, b)
 
         return np.concatenate((da_dt, db_dt))
 

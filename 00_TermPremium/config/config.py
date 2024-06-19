@@ -8,12 +8,12 @@ hyperparams_dict = {
     "ACM_model" : {
         "data_setting" : {
             "factor_num" : 5, # ファクター数(default : 5)
-            "maturities" : 120, # イールドカーブ作成期間 (月次入力(120 : 10年))
+            "maturities" : 600, # イールドカーブ作成期間 (月次入力(120 : 10年))
             "estimate_term" : "月次", # 月次, 日次 (週次は対象外)
             "choose_date" : "BM", # (月次の場合) データ抽出時点 (BM : 月末, MS : 月初)
-            "rx_maturities" : (6, 12, 24, 36, 48, 60, 72, 84, 96, 120), # 保有超過リターンパラメータ推計に使用する時点
+            "rx_maturities" : (6, 12, 24, 36, 48, 60, 72, 84, 96, 120, 240, 360, 600), # 保有超過リターンパラメータ推計に使用する時点 
             "start_maturity" : 2, # イールドカーブの抽出開始の残存 (2 : 残存2か月以上のデータを推計に使用)
-            "plot_maturity" : (3, 6, 12, 24, 48, 84, 120), # 推計結果を可視化する時点
+            "plot_maturity" : (3, 6, 12, 24, 48, 84, 120, 240, 360, 600), # 推計結果を可視化する時点 
             "graph_date_format" : "%Y%m", # グラフの横軸の表示方法
         },
         "setting_bool" : {
@@ -27,7 +27,7 @@ hyperparams_dict = {
         "data_setting" : {
             "factor_num" : 3, # 使用するファクター数
             "maturities" : 120, # 満期の最大値(年表示)
-            "estimate_term" : "月次", # 週次, 月次
+            "estimate_term" : "週次", # 週次, 月次
             "Data_term" : "BM", # 月次の場合 データ抽出時点(BM : 月次, MS : 月初)
             "weekday" : 2, # 週次の場合 データ抽出の曜日(月 : 0, ~ 日 : 6)
             "residual_array" : (3, 6, 12, 24, 48, 84, 120), # パラメータ推計に使用する残存年数 KW : 3, 6, 12, 24, 48, 84, 120 (12, 24, 36, 48, 60, 72, 84, 96, 108, 120) 114, 
@@ -40,9 +40,9 @@ hyperparams_dict = {
             "an_and_bn_init_value" : np.array([0, 0, 0, 0]), # 常微分方程式の初期値 , 0, 0
             # 制約条件考慮 : L-BFGS-B, TNC, SLSQP, trust-constr
             "log_likelihood_method" : "trust-constr", # method = "CG", "TNC", 'L-BFGS-B', Nelder-Mead
-            # "random_seed" : 1,
-            "init_scale" : 0.3,
-            "init_value_try_count" : 1, # 初期値を変更回数
+            "random_seed" : 5,
+            "init_scale" : 0.8,
+            "init_value_try_count" : 10, # 初期値を変更回数
             "iteration_count" : 1, # イテレーション回数
             "graph_date_format" : "%Y%m"
         },

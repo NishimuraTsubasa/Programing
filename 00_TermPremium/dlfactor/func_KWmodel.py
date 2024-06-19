@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+import random
 from scipy. optimize import minimize
 import matplotlib. pyplot as plt
 # config.からハイパラの設定を取得
@@ -23,17 +24,15 @@ def KW_model_main(X_train, data_setting, setting_bool, name_list):
     # Kalman Filter のインスタンス化
     kf = kalman_filter(estimate_params, data_setting)
     # イールド推計結果
-    result_yield_dict = kalman_smoothing(selected_yield, kf, name_list)
+    result_yield_dict, state_mean_dict = kalman_smoothing(selected_yield, kf, name_list)
 
     # ゼロイールド版 (Term Premium 用)
     zero_params = estimate_params.copy()
     # カルマンフィルターの計算
     # # リスクの市場価格 (phi, Phi)をゼロに変換 (rho_0, rho, phi, Phi, Sigma, K, state_covariance)
     zero_params[2], zero_params[3] = np.zeros(data_setting["factor_num"]), np.zeros((data_setting["factor_num"], data_setting["factor_num"]))
-    # Kalman Filter のインスタンス化
-    zero_kf = kalman_filter(zero_params, data_setting)
     # リスクフリーなイールド推計結果
-    result_zero_yield_dict = kalman_smoothing(selected_yield, zero_kf, name_list)
+    result_zero_yield_dict = calc_risk_free(data_setting, selected_yield, zero_params, state_mean_dict)
 
     # タームプレミアムの計算
     term_premium_dict = calc_term_premium_and_save_result(result_yield_dict, result_zero_yield_dict)
@@ -56,10 +55,13 @@ def estimate_params_list(selected_yield, data_setting, setting_bool, iteration_c
     # 異なる初期値での最適化を実行
     best_solution = None
     best_value = np.inf
-
-    for count in range(data_setting["init_value_try_count"]):
+    # 乱数の生成
+    random.seed(data_setting["random_seed"])
+    random_array = [random.randint(1, 1000) for _ in range(data_setting["init_value_try_count"])] 
+    count = 0
+    for random_ in random_array:
         # ランダムに配列を作成
-        param_array, bound = make_init_params_bounds(selected_yield, data_setting, setting_bool)
+        param_array, bound = make_init_params_bounds(selected_yield, data_setting, setting_bool, random_)
         # scipyによる最適化
         result = minimize(
             log_likelihood, # 最適化関数
@@ -72,6 +74,7 @@ def estimate_params_list(selected_yield, data_setting, setting_bool, iteration_c
         )
         # 試行回数の確認
         print(f"try {count + 1} result : {result.success}")
+        count += 1
 
         # 最適化の確認
         if result.fun < best_value: # result.success and
@@ -90,25 +93,9 @@ def log_likelihood(params_array, data_setting, setting_bool, selected_yield):
     # パラメータのリスト
     params_list = arrange_param_array_to_list(params_array, data_setting, setting_bool)
 
-    # try:
-    #     # カルマンフィルターのインスタンス設定
-    #     kf = kalman_filter(params_list, data_setting)
-    #     # EMアルゴリズムによるパラメータの最適化
-    #     kf = kf.em(selected_yield, n_iter = 3)
-    #     # カルマンフィルターにおける対数尤度を計算
-    #     lk = kf.loglikelihood(selected_yield)
-    #     # 数値計算
-    #     print(f"対数尤度 : {lk}")
-    #     return -lk
-    # except Exception as e:
-    #     print(f"計算失敗: {e}")
-    #     return np.inf # 失敗した場合は大きなペナルティを課す
-
     try:
         # カルマンフィルターのインスタンス設定
         kf = kalman_filter(params_list, data_setting)
-        # # EMアルゴリズムによるパラメータの最適化
-        # kf = kf.em(selected_yield, n_iter = 3)
         # カルマンフィルターにおける対数尤度を計算
         lk = kf.loglikelihood(selected_yield)
         # # 数値計算
@@ -154,13 +141,12 @@ def kalman_filter(params_list, data_setting):
 def kalman_smoothing(selected_yield, kf, name_list):
     """ Rauch–Tung–Striebeによる固定区間平滑化 """
 
-    # ここは必要かどうか要検討
-    # kf = kf.em(selected_yield, n_iter = 5)
     yield_result_list = []
 
     # ハイパーパラメータ更新のフィルタリング値・スムージング値
     em_filtered_state_mean, em_filtered_state_covariance = kf.filter(selected_yield)
     em_smoothed_state_mean, em_smoothed_state_covariance = kf.smooth(selected_yield)
+    state_mean_list = [em_filtered_state_mean, em_smoothed_state_mean]
 
     # ハイパーパラメータ推計後のイールド推計値
     # # フィルタリング結果
@@ -168,23 +154,29 @@ def kalman_smoothing(selected_yield, kf, name_list):
     # # スムージングによる推計結果
     yield_result_list.append(np.dot(em_smoothed_state_mean, kf.observation_matrices.T) + kf.observation_offsets)
 
-    # # 平滑化の実施
-    predicted_yield = np.empty(selected_yield.shape)
-    # # 初期値の設定 (バックワードでの推計)
-    current_state, current_covariance = em_smoothed_state_mean[-1], em_smoothed_state_covariance[-1]
-    # # バックワードでの推計
-    for t in range(len(selected_yield)):
-        # 1時点前の状態変数の平均・分散共分散行列を計算
-        current_state, current_covariance = kf.filter_update(current_state, current_covariance, observation = None)
-        # 予測値の推計結果
-        predicted_yield[t] = kf.observation_matrices.dot(current_state) + kf.observation_offsets # 定数項部分も追加
-    # 結果の格納
-    yield_result_list.append(predicted_yield)
-
     # 結果格納用のリスト
     result_yield_dict = {}
+    state_mean_dict = {}
     for i, df in enumerate(yield_result_list):
         result_yield_dict[name_list[i]] = pd.DataFrame(df, index = selected_yield.index, columns = selected_yield.columns)
+        state_mean_dict[name_list[i]] = state_mean_list[i]
 
-    return result_yield_dict
+    return result_yield_dict, state_mean_dict
 
+
+def calc_risk_free(data_setting, selected_yield, zero_parmas_list, state_mean_dict):
+    """ リスクフリーなイールドを生成する関数 """
+    # 異なる初期値での最適化を実施
+    Differential_EquationSolver = DifferentialEquationSolver(zero_parmas_list, data_setting)
+    solve_zero_at, solve_zero_bt = Differential_EquationSolver.calc_observation_params()
+    # 計算
+    zero_yield_dict = {}
+    for key, state_mean in state_mean_dict.items():
+        # # 内積で計算
+        zero_yield_dict[key] = pd.DataFrame(
+            np.dot(solve_zero_bt, state_mean.T).T + solve_zero_at,
+            index = selected_yield.index,
+            columns = selected_yield.columns
+        )
+
+    return zero_yield_dict

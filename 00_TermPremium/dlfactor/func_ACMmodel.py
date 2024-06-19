@@ -76,9 +76,10 @@ def AMC_model_main(X_train, data_setting, setting_bool):
     
     # 結果をリストにまとめる
     result_dict = {
-        "estimate_yield" : pred_yield_curve, 
-        "term_premium" : term_premium, 
-        "estimate_rf_rate" : pred_risk_free_rate
+        "result_yield" : X_train,
+        "estimate_yield" : pd.DataFrame(pred_yield_curve, index = X_train.index, columns = X_train.columns), 
+        "term_premium" : pd.DataFrame(term_premium, index = X_train.index, columns = X_train.columns), 
+        "estimate_rf_rate" : pd.DataFrame(pred_risk_free_rate, index = X_train.index, columns = X_train.columns)
     }
     
     return result_dict
@@ -104,8 +105,8 @@ def VAR_param_estimate(yield_PCs, bool_setting):
     """
     
     # VARモデルのためのLHS（左辺）とRHS（右辺）を構築する
-    LHS = yield_PCs[: , 1:]  # 依存変数のシフトされたデータ
-    RHS = np.vstack((np.ones((1, LHS.shape[1])), yield_PCs[:, 0 : -1]))  # 必要に応じて切片を追加
+    LHS = yield_PCs[1:, :].T  # 依存変数のシフトされたデータ
+    RHS = np.vstack((np.ones((1, LHS.shape[1])), yield_PCs[0 : -1, :].T))  # 必要に応じて切片を追加
 
     if bool_setting["use_mu_bool"]:
         # 切片をVARモデルに使用する場合
@@ -114,9 +115,9 @@ def VAR_param_estimate(yield_PCs, bool_setting):
         Phi = var_coeffs[:, 1:]  # 自己回帰係数
     else:
         # 切片がない場合
-        RHS = np.vstack((yield_PCs[:, 0 : -1]))  # 切片なしの過去の値のみ
+        RHS = np.vstack((yield_PCs[0 : -1, :].T))  # 切片なしの過去の値のみ
         var_coeffs = LHS @ np.linalg.pinv(RHS)
-        Mu = np.zeros((yield_PCs.shape[0], 1))
+        Mu = np.zeros((yield_PCs.shape[1], 1))
         Phi = var_coeffs  # 自己回帰係数のみ
 
     # 残差を計算する
@@ -197,21 +198,20 @@ def estimated_excess_return_params(yield_PCs, excess_return, data_setting, VAR_p
 
     # 設定に基づいて関連する満期を選択する
     select_maturity = data_setting["rx_maturities"]
-    selected_excess_return = excess_return[[x - 2 for x in select_maturity]]
+    selected_excess_return = excess_return[:, [x - 2 for x in select_maturity]].T
 
     # 回帰方程式のためのZ行列を構築するW
-    Z = np.vstack([np.ones(len(VAR_params_list[2])), VAR_params_list[2], yield_PCs[:-1]]).T
-    Z_inverse = np.linalg.inv(Z.T @ Z)
+    Z = np.vstack([np.ones((1, VAR_params_list[2].shape[1])), VAR_params_list[2], yield_PCs[0 : -1, :].T])
 
     # 超過リターンのパラメータを計算する
-    parms = Z_inverse @ Z.T @ selected_excess_return.T
+    parms = selected_excess_return @ np.linalg.pinv(Z)
 
     # 期待誤差とその分散を計算する
-    expected_error = selected_excess_return - parms.T @ Z.T
+    expected_error = selected_excess_return - parms @ Z
     excess_return_Sigma = np.sum(expected_error ** 2) / len(expected_error)
 
     # 超過リターンのパラメータをまとめる
-    excess_return_params_list = [parms, excess_return_Sigma]
+    excess_return_params_list = [parms[:, [0]], parms[:, 1:yield_PCs.shape[1] + 1].T, parms[:, yield_PCs.shape[1] + 1 :], excess_return_Sigma]
 
     return excess_return_params_list
 
@@ -240,11 +240,11 @@ def calc_risk_price(excess_return_params_list, VAR_params_list):
 
     # ラムダ値を推定する
     # lambda_0は定数項のリスク価格、lambda_1は時変項のリスク価格
-    lambda_0 = np.linalg.pinv(excess_return_Sigma @ beta.T) @ (a - mu)
-    lambda_1 = np.linalg.pinv(excess_return_Sigma @ beta.T) @ (c - Phi @ beta.T)
+    lambda_0 = np.linalg.pinv(beta.T) @ (a + 1/2 * (B_star @ vec(Sigma) + excess_return_Sigma))
+    lambda_1 = np.linalg.pinv(beta.T) @ c
 
     # さらなる計算のためにlambda_0とlambda_1を結合する
-    lambda_combined = np.append(lambda_0, lambda_1, axis=1)
+    lambda_list = [lambda_0, lambda_1]
 
     # 超過リターンがないと仮定した場合のゼロのlambdaリストを計算する
     zero_lambda_list = [
@@ -253,7 +253,7 @@ def calc_risk_price(excess_return_params_list, VAR_params_list):
     ]
 
     # ラムダパラメータを返す
-    return lambda_combined, zero_lambda_list
+    return lambda_list, zero_lambda_list
 
 
 def calc_yield_curve_params(yield_PCs, risk_free_rate, excess_return_params_list, VAR_params_list, lambda_list, data_setting):
@@ -285,20 +285,22 @@ def calc_yield_curve_params(yield_PCs, risk_free_rate, excess_return_params_list
     B = np.zeros((factor_num, num_maturities))
 
     # 対数債券価格の時系列モデルパラメータの初期値を計算
-    delta = risk_free_rate @ np.linalg.pinv(
+    delta = np.array([risk_free_rate]) @ np.linalg.pinv(
         np.vstack((
-            np.ones((1, yield_PCs.shape[1] - 1)),
-            yield_PCs[:, 0 : -1]
+            np.ones((1, yield_PCs.shape[0] - 1)),
+            yield_PCs[0 : -1, :].T
         ))
     )
     # 第1成分はA_0、第2成分はB_0
     delta_zero, delta_one = delta[[0], [0]], delta[[0], 1 :]
+    A[0, 0] = - delta_zero
+    B[:, 0] = - delta_one
 
     # A と B の残りの要素を計算する
     for i in range(1, num_maturities):
         A[0, i] = A[0, i - 1] + B[:, i - 1].T @ (VAR_params_list[0] - lambda_list[0]) \
                 + 0.5 * (B[:, i - 1].T @ VAR_params_list[3] @ B[:, i - 1] + excess_return_params_list[3]) - delta_zero
-        B[:, i] = B[:, i] @ (VAR_params_list[1] - lambda_list[1]) - delta_one 
+        B[:, i] = B[:, i - 1] @ (VAR_params_list[1] - lambda_list[1]) - delta_one 
 
     return A, B
 
@@ -321,7 +323,7 @@ def yield_curve_estimate(yield_PCs, A, B, maturity_array):
             推定されたイールド曲線
     """
     # 推定された対数価格を計算する
-    estimated_log_price = (A.T + B.T @ yield_PCs).T
+    estimated_log_price = (A.T + B.T @ yield_PCs.T).T
     
     # 対数価格をイールド曲線に変換する
     # 式 log(P(t)) = -rt を再配列して r = -log(P(t)) / t
